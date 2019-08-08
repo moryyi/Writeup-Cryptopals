@@ -35,7 +35,7 @@ def generateRandom16ByteString():
 def blockPKCS7PaddingWithFixedBlockSize(block, targetBlockSize):
     remainSize = targetBlockSize - (len(block) % targetBlockSize)
     _append = ""
-    for i in range(remainSize):
+    for _ in range(remainSize):
         _append += chr(remainSize)
     return block + _append.encode()
 
