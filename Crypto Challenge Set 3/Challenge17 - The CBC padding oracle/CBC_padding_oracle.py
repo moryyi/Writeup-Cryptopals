@@ -46,7 +46,7 @@ def blockPKCS7PaddingWithFixedBlockSize(block, targetBlockSize):
 def ifBlockPKCS7PaddingValidation(block, targetBlockSize):
     # Check whether is multiple of given block size.
     if len(block) % targetBlockSize:
-        print('Error: Bad padding. Not align to block size.')
+        # print('\tError: Bad padding. Not align to block size.')
         return False
     # Get padding length
     # Notice    : when using [] operation in byte string,
@@ -54,13 +54,16 @@ def ifBlockPKCS7PaddingValidation(block, targetBlockSize):
     # Example   : a = b'a\x02'
     #           a[0] = 97, a[1] = 2
     paddingSize = block[-1]
+    if paddingSize > 0x10:
+        # print("\tError: Bad padding. Invalid padding size.")
+        return False
     if paddingSize == 0x00:
         paddingSize = 0x10
-    print("\t>Detect padding size: {}".format(hex(paddingSize)))
+    # print("> Detect padding size: {}".format(hex(paddingSize)))
     for i in range(1, paddingSize + 1, 1):
         # Loop from end to start and check each padding bytes
         if block[-i] != paddingSize:
-            print('Error: Bad padding. Invalid padding.')
+            # print('\tError: Bad padding. Invalid padding.')
             return False
         else:
             pass
@@ -75,13 +78,13 @@ def truncatePadding(bDecipher):
     _ifValid = True
     # If paddingSize is valid:
     if paddingSize not in range(1, 16 + 1):
-        print("Error: Invalid padding found in decryption result.")
+        # print("\tError: Invalid padding found in decryption result.")
         _result = bDecipher
     else:
         for i in range(paddingSize):
             if bDecipher[-i - 1] != paddingSize:
                 _result = bDecipher
-                print('Error: Invalid padding: padding size error.')
+                # print('\tError: Invalid padding: padding size error.')
                 _ifValid = False
                 break
         if _ifValid:
@@ -92,7 +95,8 @@ def truncatePadding(bDecipher):
 # Required functions
 def encryption():
     # bRandomPlainText = BYTE_RANDOM_STRINGS_LIST[random.randint(0, len(BYTE_RANDOM_STRINGS_LIST) - 1)]
-    bRandomPlainText = b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d'
+    # bRandomPlainText = b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d'
+    bRandomPlainText = b'This is a long string to be encrypted and the cipher got from the encryption which is encrypted with AES-128-CBC and key randomly chosed will be cracked, with the help of side-channel-attack of padding oracle.'
     bPlainText = blockPKCS7PaddingWithFixedBlockSize(bRandomPlainText, 16)
     # Generate IV each time
     # Return IV with cipher text.
@@ -103,7 +107,7 @@ def encryption():
     return bCipher, bIV
 
 
-def decryption(bCipher, bIV):
+def decryption_Padding_Oracle(bCipher, bIV):
     if type(bCipher) == str:
         bCipher = str.encode(bCipher)
     if type(bIV) == str:
@@ -112,7 +116,7 @@ def decryption(bCipher, bIV):
     # Decrypt cipher
     aes = AES.new(bAesKey, AES.MODE_CBC, bIV)
     bDecipher = aes.decrypt(bCipher)
-    print("> Current Decipher: {}".format(bDecipher))
+    # print("> Current Decipher: {}".format(bDecipher))
     # if not ifBlockPKCS7PaddingValidation(bDecipher, 16):
     #     print("Error: Invalid padding.")
     #     return b''
@@ -124,34 +128,88 @@ def decryption(bCipher, bIV):
 
 # Side-channel Attack
 def AES_CBC_PaddingOracleAttack(bCipher, bIV):
-    bCipherVector = b''
-    return
+    bCrackedPlainTextBlock = b''
+    
+    # Number of rounds should be the block number of 
+    # the original cipher text.
+    roundNum = len(bCipher)
+
+    # Preparation:
+    #   Make sure that the first cipher block would be cracked
+    bCipher = bIV + bCipher
+    
+    # Attack
+    for i in range(0, len(bCipher) - 16, 16):
+        _bCurrentCrackedBlock = oneBlockCracker(bCipher[i : i + 16], bCipher[i + 16 : i + 32], bIV)
+        if _bCurrentCrackedBlock == b'':
+            # One-block-cracker return crack error
+            print("> Error from AES_CBC_PaddingOracleAttack: Crack failed. One-block-craker returns empty result.")
+            return False
+        else:
+            bCrackedPlainTextBlock += _bCurrentCrackedBlock
+            print(("> Current plain text: {}\n".format(bCrackedPlainTextBlock)))
+    print("> Crack Result: {}".format(bCrackedPlainTextBlock))
+    return True
 
 
+def oneBlockCracker(bCipherBlockPrevious, bCipherBlockToBeDecrypted, bIV):
+    # TODO:
+    #   bIV here should be previous cipher text
+    if type(bCipherBlockPrevious) == str:
+        bCipherBlockPrevious = str.encode(bCipherBlockPrevious)
+    if type(bCipherBlockToBeDecrypted) == str:
+        bCipherBlockToBeDecrypted = str.encode(bCipherBlockToBeDecrypted)
+    if type(bIV) == str:
+        bIV = str.encode(bIV)
 
-def breakTest(bCipher, bIV):
+    # Hex list of intermediate state
+    # Given in reversed order and unconcerned length (shorter than block size 16)
+    bIntermediateReversedList = []
+
+    # Loop from the last byte to the first
+    for currentBytePtr in range(15, 0 - 1, -1):
+        # print("> Current round: #{}".format(currentBytePtr))
+        # Generate attack vector for current round
+        bPrepending = generateByteString(currentBytePtr)
+        _bTmpIntermediateReversedList = [(16 - currentBytePtr) ^ bIntermediateReversedList[i] for i in range(len(bIntermediateReversedList))]
+        for i in range(0x00, 0x100):
+            # print("> Current: {}: ".format(i), end="")
+            bAlteredCiphertextBlock = bPrepending + bytes([i] + _bTmpIntermediateReversedList[::-1])
+            # print("> Current length: {}: {}".format(len(bAlteredCiphertextBlock), bAlteredCiphertextBlock))
+            if len(bAlteredCiphertextBlock) == 16:
+                bAlteredCiphertextBlock += bCipherBlockToBeDecrypted
+            else:
+                # Test only
+                # Attack failed. Return from function.
+                print(">> Error: Failed in crafting attack vector. Current attack vector length: {}".format(len(bAlteredCiphertextBlock)))
+                print(">> Current intermediate state: {}".format(bIntermediateReversedList[::-1]))
+                return b''
+
+            # Decrypt
+            if decryption_Padding_Oracle(bAlteredCiphertextBlock, bIV):
+                bIntermediateReversedList.append(i ^ (16 - currentBytePtr))
+                break
+            else:
+                pass
+    
+    print("> Current round intermediate hex list: {}".format(bIntermediateReversedList[::-1]))
+    _result = []
+    for i in range(len(bIntermediateReversedList)):
+        _result.append(
+            bIntermediateReversedList[15 - i] ^ bCipherBlockPrevious[i]
+        )
+    print("> Current round cracked plain text: {}".format(bytes(_result)))
+    return bytes(_result)
+
+
+def decryption(bCipher, bIV):
     if type(bCipher) == str:
         bCipher = str.encode(bCipher)
     if type(bIV) == str:
         bIV = str.encode(bIV)
-    
-    bCipher01 = bCipher[:16]
-    bCurrectPlaintext01 = b'\x00' * 16
-    # Attack the last byte in the first cipher block.
-    # bCipherPrependingVector = generateByteString(15)
-    bCipherPrependingVector = bIV[:15]
-    for lastByte in range(0x00, 0x100):
-        bAttackVector = bCipherPrependingVector + bytes([lastByte]) + bCipher01
-        print("\n> Current attack vector: {}".format(list(bAttackVector)))
-        print("> Current last byte of cipher: {}".format(bCipher01[-1]))
-        if decryption(bAttackVector, bIV):
-            print("> Valid Padding. Last byte: {}".format(lastByte))
-            bCurrectPlaintext01 = bCurrectPlaintext01[:15] + bytes([lastByte ^ 0x01 ^ bCipher01[-1]])
-            print("> Current break plaintext: {}".format(bCurrectPlaintext01))
-            break
-        else:
-            print("> Invalid Padding. Current last byte: {}".format(lastByte))    
-    return
+    aes = AES.new(bAesKey, AES.MODE_CBC, bIV)
+    bDecipher = aes.decrypt(bCipher)
+    return bDecipher
 
 
 # Global variables
@@ -180,12 +238,13 @@ if __name__ == "__main__":
     # writeBase64ContentIntoFile('key.txt', bAesKey)
     # bCipher = readBase64Content('cipher.txt')
     # bIV = readBase64Content('iv.txt')
-    b64Cipher = base64.b64encode(bCipher)
+    # b64Cipher = base64.b64encode(bCipher)
     # b64IV = base64.b64encode(bIV)
     # print("Base64-encoded cipher: {}\nBase64-encoded IV: {}".format(b64Cipher, b64IV))
     
     # 
     # Test Only
-    breakTest(bCipher, bIV)
+    # oneBlockCracker(bIV, bCipher[0 : 16], bIV)
+    AES_CBC_PaddingOracleAttack(bCipher, bIV)
     bDecipher = decryption(bCipher, bIV)
-    print("Decryption result : {}".format(bDecipher))
+    print("\n> Decryption result : {}".format(bDecipher))
