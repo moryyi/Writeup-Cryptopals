@@ -4,7 +4,10 @@
 
 from Crypto.Cipher import AES
 from Crypto import Random
-import base64, random
+import base64, random, string
+
+
+PROBABLE_LETTERS = string.ascii_letters + ' _{}\''
 
 
 def encryption_oracle(plainText, bAesKey):
@@ -44,6 +47,8 @@ def detectBlockSize(bCipher, plainText, bAesKey):
 
 
 def blockPKCS7PaddingWithFixedBlockSize(block, targetBlockSize):
+    if type(block) == str:
+        block = str.encode(block)
     remainSize = targetBlockSize - (len(block) % targetBlockSize)
     _append = ""
     for _ in range(remainSize):
@@ -79,13 +84,31 @@ def breakUnknownString(cipherFileName):
     # 3. Decrypt unknown string byte-by-byte
     bUnknownString = base64.b64decode("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK")
     decipherHexList = []
-    for c in bUnknownString:
-        _tmp = _prefix + bytes([c])
-        _bTmpCipher = encryption_oracle(_tmp, bAesKey)[:blockSize]
-        _k = None
-        for k in DIC_PLAIN_CIPHER_MAP.keys():
-            if DIC_PLAIN_CIPHER_MAP[k] == _bTmpCipher:
-                decipherHexList.append(k[-1])
+
+    brokenUnknownString = b''
+    MaximumDecipherLength = 200
+    for i in range(MaximumDecipherLength):
+        # Craft dictionary
+        currentTotalBlockSize = (i // 16 + 1) * 16
+        currentTargetSize = currentTotalBlockSize - 1 - i
+        prepending = b'A' * currentTargetSize
+        currentCraftInput = prepending + brokenUnknownString
+        _record_dic = {}
+        for guessChar in range(0x00, 0x100, 1):
+            _prefix = currentCraftInput + bytes([guessChar])
+            _bTmp = blockPKCS7PaddingWithFixedBlockSize(_prefix, blockSize)
+            _record_dic[_prefix] = encryption_oracle(_bTmp, bAesKey)[:currentTotalBlockSize]
+        # Crack current unknown byte
+        _bPlainText = prepending + bUnknownString
+        _bPlainText = blockPKCS7PaddingWithFixedBlockSize(_bPlainText, blockSize)
+        _bCipher = encryption_oracle(_bPlainText, bAesKey)[:currentTotalBlockSize]
+        for k in _record_dic.keys():
+            if _record_dic[k] == _bCipher:
+                brokenUnknownString += bytes([k[-1]])
+                print("#{} Current character: {}".format(i, bytes([k[-1]])))
+                break
+    print(brokenUnknownString)
+    decipherHexList = [0x64]
     return decipherHexList
 
 
