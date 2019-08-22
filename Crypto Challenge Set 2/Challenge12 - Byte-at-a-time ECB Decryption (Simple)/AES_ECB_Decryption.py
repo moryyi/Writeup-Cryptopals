@@ -71,17 +71,8 @@ def breakUnknownString(cipherFileName):
     # 1. Break block size
     blockSize = detectBlockSize(bCipher, bPlainText, bAesKey)
     print("> Detected Block Size: {}".format(blockSize))
-
-    # 2. Create dictionary with blockSize
-    _prefix = b'A' * (blockSize - 1)
-    DIC_PLAIN_CIPHER_MAP = { }
-    for c in range(0x00, 0xff + 1, 1):
-        _tmp = _prefix + bytes([c])
-        _bTmp = blockPKCS7PaddingWithFixedBlockSize(_tmp, blockSize)
-        _bCipher = encryption_oracle(_bTmp, bAesKey)[:blockSize]
-        DIC_PLAIN_CIPHER_MAP[_tmp] = _bCipher
     
-    # 3. Decrypt unknown string byte-by-byte
+    # 2. Decrypt unknown string byte-by-byte
     bUnknownString = base64.b64decode("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK")
     decipherHexList = []
 
@@ -105,25 +96,16 @@ def breakUnknownString(cipherFileName):
         for k in _record_dic.keys():
             if _record_dic[k] == _bCipher:
                 brokenUnknownString += bytes([k[-1]])
-                print("#{} Current character: {}".format(i, bytes([k[-1]])))
+                # print("#{} Current character: {}".format(i, bytes([k[-1]])))
                 break
-    print(brokenUnknownString)
-    decipherHexList = [0x64]
-    return decipherHexList
+    # print(brokenUnknownString)
+    return brokenUnknownString
 
 
 if __name__ == "__main__":
     aeskeyFilename = 'key.txt'
     BYTES_AES_KEY = readBase64EncodedContent(aeskeyFilename)
 
-    decipherHexList = breakUnknownString('cipher.txt')
-    decipher = [chr(h) for h in decipherHexList]
-    print("Decipher:\n\n{}".format(''.join(decipher)))
-
-    bUnknownString = base64.b64decode("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK")
-    if ''.join(decipher) == bUnknownString.decode('utf-8'):
-        print('Same')
-    else:
-        print("Different")
-
+    brokenUnknownString = breakUnknownString('cipher.txt')
+    print("Decipher: {}".format(brokenUnknownString))
 
